@@ -1,0 +1,63 @@
+name: Build and Release PdfToMarkdown
+
+on:
+  push:
+    branches: [ "main" ]
+  workflow_dispatch:
+  pull_request:
+    branches: [ "main" ]
+
+permissions:
+  contents: write
+
+jobs:
+
+  build:
+
+    strategy:
+      matrix:
+        configuration: [Release]
+
+    runs-on: windows-latest
+
+    steps:
+    - name: Checkout repo
+      uses: actions/checkout@v4
+
+    - name: Install .NET Core
+      uses: actions/setup-dotnet@v4
+      with:
+        dotnet-version: 8.0.x
+
+    - name: Setup MSBuild.exe
+      uses: microsoft/setup-msbuild@v2
+
+    - name: Generate version
+      id: version
+      run: |
+        $date = Get-Date -Format "yyyy.MM.dd"
+        $run = $env:GITHUB_RUN_NUMBER
+        $version = "$date.$run"
+        echo "version=$version" >> $env:GITHUB_OUTPUT
+
+    - name: Publish self-contained exe
+      run: |
+        dotnet publish PdfToMarkdown/PdfToMarkdown.csproj `
+          -c Release `
+          -r win-x64 `
+          --self-contained true `
+          -p:PublishSingleFile=true `
+          -p:IncludeNativeLibrariesForSelfExtract=true `
+          -p:Version=${{ steps.version.outputs.version }} `
+          -o publish
+
+    - name: Zip output
+      run: Compress-Archive -Path publish/* -DestinationPath PdfToMarkdown-${{ steps.version.outputs.version }}.zip
+
+    - name: Release
+      if: github.event_name != 'pull_request'
+      uses: softprops/action-gh-release@v2
+      with:
+        tag_name: pdftomarkdown-${{ steps.version.outputs.version }}
+        name: PdfToMarkdown ${{ steps.version.outputs.version }}
+        files: PdfToMarkdown-${{ steps.version.outputs.version }}.zip
